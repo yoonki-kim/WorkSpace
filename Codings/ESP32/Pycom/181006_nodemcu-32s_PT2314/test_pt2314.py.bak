@@ -1,0 +1,6 @@
+from pt2314 import PT2314
+
+audio = PT2314()
+
+audio.setAttenuation(70,70)
+audio.setVolume(70)
