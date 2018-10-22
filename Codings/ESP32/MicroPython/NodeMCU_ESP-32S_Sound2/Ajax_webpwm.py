@@ -5,7 +5,7 @@ import time
 import socket
 import gc
 
-SSID="KT_GiGA_2G_99F3"                                         #set the wifi ID 
+SSID="KT_GiGA_2G_99F3"                                         #set the wifi ID
 PASSWORD="axca1hf258"                                 #set the wifi password
 wlan=None
 s=None
@@ -20,7 +20,7 @@ def connectWifi(ssid,passwd):
   while(wlan.ifconfig()[0]=='0.0.0.0'):
     time.sleep(1)
   return True
-  
+
 def ajaxWebserv():
   # minimal Ajax in Control Webserver
   global s,led
@@ -43,10 +43,10 @@ def ajaxWebserv():
       led.duty(int(Val)*100)                            #set the duty of led
       conn.send(Val)                                    #send data
     else:
-      with open('Ajax_webCtrl.htm', 'r') as html:            #open file 'webCtrl.htm' with readonly
+      with open('Ajax_webCtrl.html', 'r') as html:            #open file 'webCtrl.htm' with readonly
         conn.sendall(html.read())                       #read data from 'webCtrl.htm',and send all of the data
     conn.sendall('\r\n')
-    conn.close()                                        #close file 
+    conn.close()                                        #close file
     #print("Connection wth %s closed" % str(addr))
 
 #Catch exceptions,stop program if interrupted accidentally in the 'try'
@@ -62,13 +62,3 @@ except:
   led.deinit()
   wlan.disconnect()
   wlan.active(False)
-
-
-
-
-
-
-
-
-
-
