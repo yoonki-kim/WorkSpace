@@ -1,8 +1,6 @@
-# MicroPython converting by yoonki.kim71@gmail.com
+# MicroPython on NodeMCU-ESP32S
 # Inspired by http://www.raspberrypi-spy.co.uk/2015/03/bh1750fvi-i2c-digital-light-intensity-sensor/
 
-from machine import I2C
-from machine import Pin
 import time
 
 class BH1750():
@@ -11,31 +9,42 @@ class BH1750():
     POWER_DOWN = 0x00 # No active state
     POWER_ON   = 0x01 # Power on
     RESET      = 0x07 # Reset data register value
-    # Start measurement at 4lx resolution. Time typically 16ms.
-    CONTINUOUS_LOW_RES_MODE = 0x13
+    
     # Start measurement at 1lx resolution. Time typically 120ms
     CONTINUOUS_HIGH_RES_MODE_1 = 0x10
     # Start measurement at 0.5lx resolution. Time typically 120ms
     CONTINUOUS_HIGH_RES_MODE_2 = 0x11
+    # Start measurement at 4lx resolution. Time typically 16ms.
+    CONTINUOUS_LOW_RES_MODE = 0x13
+
     # Start measurement at 1lx resolution. Time typically 120ms
     # Device is automatically set to Power Down after measurement.
     ONE_TIME_HIGH_RES_MODE_1 = 0x20
     # Start measurement at 0.5lx resolution. Time typically 120ms
     # Device is automatically set to Power Down after measurement.
     ONE_TIME_HIGH_RES_MODE_2 = 0x21
-    # Start measurement at 1lx resolution. Time typically 120ms
+    # Start measurement at 4lx resolution. Time typically 16ms
     # Device is automatically set to Power Down after measurement.
     ONE_TIME_LOW_RES_MODE = 0x23
-
-    def __init__(self, bus, addr=0x23):  #ADDR 'H' - 0x5c
+    
+    res_mod = [(CONTINUOUS_HIGH_RES_MODE_1, "CONTINUOUS_HIGH_RES_MODE_1"),
+               (CONTINUOUS_HIGH_RES_MODE_2, "CONTINUOUS_HIGH_RES_MODE_2"),
+               (CONTINUOUS_LOW_RES_MODE, "CONTINUOUS_LOW_RES_MODE"),
+               (ONE_TIME_HIGH_RES_MODE_1, "ONE_TIME_HIGH_RES_MODE_1"),
+               (ONE_TIME_HIGH_RES_MODE_2, "ONE_TIME_HIGH_RES_MODE_2"),
+               (ONE_TIME_LOW_RES_MODE, "ONE_TIME_LOW_RES_MODE")]
+    
+    # default addr=0x23 if addr pin floating or pulled to ground
+    # addr=0x5c if addr pin pulled high
+    def __init__(self, bus, addr=0x23):
         self.bus = bus
         self.addr = addr
         self.power_down()
-        self.set_sensitivity()
+        self.reset()
 
     def _set_mode(self, mode):
         self.mode = mode
-        self.bus.writeto(self.addr, self.mode)
+        self.bus.writeto(self.addr, bytes([self.mode]))
 
     def power_down(self):
         self._set_mode(self.POWER_DOWN)
@@ -47,86 +56,49 @@ class BH1750():
         self.power_on() #It has to be powered on before resetting
         self._set_mode(self.RESET)
 
-    def cont_low_res(self):
-        self._set_mode(self.CONTINUOUS_LOW_RES_MODE)
+    def get_result(self, mode):
+        """ Return current measurement result in lx. """   
+        data = self.bus.readfrom(self.addr, 2)
+        # 2.0x in High Resolution Mode2, else 1.0x
+        factor = 2.0 if mode in (0x11, 0x21) else 1.0
+        return (data[0]<<8 | data[1]) / (1.2 * factor)
 
-    def cont_high_res(self):
-        self._set_mode(self.CONTINUOUS_HIGH_RES_MODE_1)
+    def wait_for_result(self, mode):
+        """ earlier measurements return previous reading """
+        # 24ms wait in Low Resolution mode, else 180ms
+        time.sleep_ms(24 if mode in (0x13, 0x23) else 180)
 
-    def cont_high_res2(self):
-        self._set_mode(self.CONTINUOUS_HIGH_RES_MODE_2)
-
-    def oneshot_low_res(self):
-        self._set_mode(self.ONE_TIME_LOW_RES_MODE)
-
-    def oneshot_high_res(self):
-        self._set_mode(self.ONE_TIME_HIGH_RES_MODE_1)
-
-    def oneshot_high_res2(self):
-        self._set_mode(self.ONE_TIME_HIGH_RES_MODE_2)
-
-    def set_sensitivity(self, sensitivity=69):
-        """ Set the sensor sensitivity.
-            Valid values are 31 (lowest) to 254 (highest), default is 69.
-        """
-        if sensitivity < 31:
-            self.mtreg = 31
-        elif sensitivity > 254:
-            self.mtreg = 254
-        else:
-            self.mtreg = sensitivity
-        self.power_on()
-        self._set_mode(0x40 | (self.mtreg >> 5))
-        self._set_mode(0x60 | (self.mtreg & 0x1f))
-        self.power_down()
-
-    def get_result(self):
-        """ Return current measurement result in lx. """
-        data = self.bus.read_word_data(self.addr, self.mode)
-        count = data >> 8 | (data&0xff)<<8
-        mode2coeff =  2 if (self.mode & 0x03) == 0x01 else 1
-        ratio = 1/(1.2 * (self.mtreg/69.0) * mode2coeff)
-        return ratio*count
-
-    def wait_for_result(self, additional=0):
-        basetime = 0.018 if (self.mode & 0x03) == 0x03 else 0.128
-        time.sleep(basetime * (self.mtreg/69.0) + additional)
-
-    def do_measurement(self, mode, additional_delay=0):
-        """
-        Perform complete measurement using command
-        specified by parameter mode with additional
-        delay specified in parameter additional_delay.
-        Return output value in Lx.
-        """
-        self.reset()
-        self._set_mode(mode)
-        self.wait_for_result(additional=additional_delay)
-        return self.get_result()
-
-    def measure_low_res(self, additional_delay=0):
-        return self.do_measurement(self.ONE_TIME_LOW_RES_MODE, additional_delay)
-
-    def measure_high_res(self, additional_delay=0):
-        return self.do_measurement(self.ONE_TIME_HIGH_RES_MODE_1, additional_delay)
-
-    def measure_high_res2(self, additional_delay=0):
-        return self.do_measurement(self.ONE_TIME_HIGH_RES_MODE_2, additional_delay)
-
+    def do_measurement(self, mode):
+        """Sample luminance (in lux), using specified sensor mode."""
+        # continuous modes
+        if mode & 0x10 and mode != self.mode:
+            self._set_mode(mode)
+        # one shot modes
+        if mode & 0x20:
+            self._set_mode(mode)
+        
+        self.wait_for_result(mode)
+        
+        return self.get_result(mode)
 
 def main():
-
-    bus = I2C(scl=Pin(25), sda=Pin(26), freq=100000)
+    from machine import I2C, Pin
+    #from bh1750 import BH1750
+    #import time
+    
+    bus = I2C(scl=Pin(17),sda=Pin(16))
     sensor = BH1750(bus)
 
     while True:
-        print("Sensitivity: {:d}".format(sensor.mtreg))
-        for measurefunc, name in [(sensor.measure_low_res, "Low Res "), (sensor.measure_high_res, "HighRes "), (sensor.measure_high_res2, "HighRes2")]:
-            print("{} Light Level : {:3.2f} lx".format(name, measurefunc()))
-        print("--------")
-        sensor.set_sensitivity((sensor.mtreg + 10) % 255)
+        lux = sensor.do_measurement(BH1750.ONE_TIME_HIGH_RES_MODE_1)
+        print("%d lux" % lux)
         time.sleep(1)
 
 
 if __name__=="__main__":
     main()
+    
+
+
+
+
