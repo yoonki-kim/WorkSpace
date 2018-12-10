@@ -15,8 +15,14 @@ def connect():
     if not wlan.isconnected():
         print('connecting to network...')
         wlan.connect(my_ssid, my_password)   #Connect to AP
+        i = 0
         while not wlan.isconnected():
-            pass
+            i = i + 1
+            print("%d times trying to connect..." % i)
+            if (i > 6):
+                print("No AP found! Try again next.")
+                wlan.disconnect()
+                break
     print('network config:', wlan.ifconfig())
 
 if __name__ == "__main__":
